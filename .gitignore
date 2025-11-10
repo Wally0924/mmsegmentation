@@ -118,3 +118,9 @@ mmseg/.mim
 
 # Pytorch
 *.pth
+
+# Memorydb
+*.jpg
+*.png
+*.npy
+*.json
