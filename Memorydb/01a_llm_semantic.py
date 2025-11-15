@@ -19,6 +19,28 @@ OUTPUT_SUMMARIES_FILE = "llava_summaries.json"  # 新的 VLM 摘要輸出
 MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
 
 # --- 您的英文 JSON PROMPT ---
+# ENGLISH_JSON_PROMPT = """You are a precise, objective scene analysis AI.
+# Your sole task is to analyze the 'permanent structural features' of this image and return a JSON.
+
+# [STRICT INSTRUCTIONS]
+# 1.  **Completely ignore** all 'transient' information, including: time (day, night, dusk), weather (sunny, rainy, foggy), and lighting (shadows, streetlights, headlights).
+# 2.  **Completely ignore** all 'mobile' objects, including: all vehicles, pedestrians, bicycles.
+# 3.  **Focus only** on fixed, immovable structures.
+
+# [OUTPUT FORMAT]
+# You *must* return *only* the JSON object below, with no additional explanatory text or comments.
+# If a feature is 'not visible', 'occluded', or 'non-existent', use the exact value "N/A" (uppercase).
+# Use short, objective nouns, avoiding subjective adjectives.
+
+# {
+#   "road_layout": "Describe the road layout (e.g., crossroad, t-junction, underpass, tunnel_entrance, curve, straight_road)",
+#   "left_structure_type": "Describe the 'type' of the main left structure (e.g., high-rise, shop, apartment, trees, sound_barrier, N/A)",
+#   "left_structure_feature": "Describe 'one key feature' of the main left structure (e.g., glass_facade, brick_wall, large_sign, N/A)",
+#   "right_structure_type": "Describe the 'type' of the main right structure (e.g., high-rise, shop, apartment, trees, sidewalk, N/A)",
+#   "right_structure_feature": "Describe 'one key feature' of the main right structure (e.g., arcade, red_roof, bus_stop, N/A)",
+#   "distant_landmark": "Describe the single clearest distant, fixed landmark (e.g., mountain, tower, building_skyline, N/A)"
+# }
+# """
 ENGLISH_JSON_PROMPT = """You are a precise, objective scene analysis AI.
 Your sole task is to analyze the 'permanent structural features' of this image and return a JSON.
 
@@ -29,7 +51,7 @@ Your sole task is to analyze the 'permanent structural features' of this image a
 
 [OUTPUT FORMAT]
 You *must* return *only* the JSON object below, with no additional explanatory text or comments.
-If a feature is 'not visible', 'occluded', or 'non-existent', use the exact value "N/A" (uppercase).
+If a feature is 'not visible' or 'non-existent', use the exact value "N/A".
 Use short, objective nouns, avoiding subjective adjectives.
 
 {
@@ -38,7 +60,8 @@ Use short, objective nouns, avoiding subjective adjectives.
   "left_structure_feature": "Describe 'one key feature' of the main left structure (e.g., glass_facade, brick_wall, large_sign, N/A)",
   "right_structure_type": "Describe the 'type' of the main right structure (e.g., high-rise, shop, apartment, trees, sidewalk, N/A)",
   "right_structure_feature": "Describe 'one key feature' of the main right structure (e.g., arcade, red_roof, bus_stop, N/A)",
-  "distant_landmark": "Describe the single clearest distant, fixed landmark (e.g., mountain, tower, building_skyline, N/A)"
+  "distant_landmark": "Describe the single clearest distant, fixed landmark (e.g., mountain, tower, building_skyline, N/A)",
+  "ocr_text_on_signs": "Read and list any clear, readable text from *permanent* signs (e.g., '7-ELEVEN', 'MICHELANGELO', 'Xinyi Rd.', 'STOP', N/A)"
 }
 """
 

@@ -6,11 +6,11 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.cluster._kmeans")
 
 # --- 1. 設定 ---
-INPUT_FEATURES_FILE = "all_features.npy"       # 階段一的特徵檔案
+INPUT_FEATURES_FILE = "all_text_features.npy"       # 階段一的特徵檔案
 OUTPUT_LABELS_FILE = "cluster_labels.npy"      # 輸出：每張圖片的群組 ID
 OUTPUT_CENTERS_FILE = "cluster_centers.npy"    # 輸出：K 個群組的中心向量 (記憶庫的 Key)
 
-K_CLUSTERS = 50
+K_CLUSTERS = 30
 
 # --------------------
 
