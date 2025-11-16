@@ -46,15 +46,34 @@ if len(filenames_list) != len(summaries_dict):
 # --- 4. Prepare Sentences in Correct Order ---
 
 json_strings_to_encode = []
+
 for filename in filenames_list:
     if filename in summaries_dict:
-        # 從字典中找出 VLM 生成的 JSON 字串
-        json_str = summaries_dict[filename]
-        json_strings_to_encode.append(json_str)
+        raw_json_str = summaries_dict[filename]
+        try:
+            data = json.loads(raw_json_str)
+        except json.JSONDecodeError:
+            # 如果碰到壞掉的 JSON，就退回用原始字串
+            json_strings_to_encode.append(raw_json_str)
+            continue
+
+        # 根據你的 schema 組成固定順序的字串
+        parts = []
+        parts.append(f"primary_landmark={data.get('primary_landmark', 'N/A')}")
+        parts.append(f"road_layout={data.get('road_layout', 'N/A')}")
+        parts.append("road_markings=" + "|".join(data.get("road_markings", [])))
+        parts.append(f"left_structure_type={data.get('left_structure_type', 'N/A')}")
+        parts.append(f"right_structure_type={data.get('right_structure_type', 'N/A')}")
+        parts.append(f"vegetation_type={data.get('vegetation_type', 'N/A')}")
+        parts.append("key_street_furniture=" + "|".join(data.get("key_street_furniture", [])))
+        parts.append("ocr_text_on_signs=" + "|".join(data.get("ocr_text_on_signs", [])))
+
+        canonical_str = "; ".join(parts)
+        json_strings_to_encode.append(canonical_str)
     else:
-        # 這種情況不應該發生，但作為保險
         print(f"WARNING: Filename {filename} not found in summaries dict! Appending empty string.")
-        json_strings_to_encode.append("") # 塞一個空字串來保持順序
+        json_strings_to_encode.append("")
+
 
 # --- 5. Encode Text Vectors (Core Step) ---
 print(f"Encoding {len(json_strings_to_encode)} text summaries into vectors...")
@@ -66,6 +85,11 @@ all_text_features_np = model.encode(
     show_progress_bar=True, # 顯示一個 tqdm 進度條
     batch_size=32           # S-BERT 內建批次處理
 )
+
+# L2 normalize 文字向量
+norms = np.linalg.norm(all_text_features_np, axis=1, keepdims=True)
+all_text_features_np = all_text_features_np / np.clip(norms, 1e-12, None)
+
 
 # --- 6. Save Results ---
 print(f"Encoding complete. Vector shape: {all_text_features_np.shape}")

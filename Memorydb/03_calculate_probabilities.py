@@ -6,7 +6,7 @@ from tqdm import tqdm
 import warnings
 
 # --- 1. Settings ---
-K_CLUSTERS = 30 
+K_CLUSTERS = 25
 
 # (輸入) VLM-First 階段的產出
 INPUT_LABELS_FILE = "cluster_labels.npy"      # 來自 02_ (基於文字向量) 的分群標籤

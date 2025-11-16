@@ -18,52 +18,78 @@ OUTPUT_SUMMARIES_FILE = "llava_summaries.json"  # 新的 VLM 摘要輸出
 # LLaVA-NeXT VLM
 MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
 
-# --- 您的英文 JSON PROMPT ---
-# ENGLISH_JSON_PROMPT = """You are a precise, objective scene analysis AI.
-# Your sole task is to analyze the 'permanent structural features' of this image and return a JSON.
+ENGLISH_JSON_PROMPT = '''
+You are a precise, objective scene analysis AI.
+Your task is to analyze only the permanent structural features of this road scene image and output one JSON object.
 
-# [STRICT INSTRUCTIONS]
-# 1.  **Completely ignore** all 'transient' information, including: time (day, night, dusk), weather (sunny, rainy, foggy), and lighting (shadows, streetlights, headlights).
-# 2.  **Completely ignore** all 'mobile' objects, including: all vehicles, pedestrians, bicycles.
-# 3.  **Focus only** on fixed, immovable structures.
-
-# [OUTPUT FORMAT]
-# You *must* return *only* the JSON object below, with no additional explanatory text or comments.
-# If a feature is 'not visible', 'occluded', or 'non-existent', use the exact value "N/A" (uppercase).
-# Use short, objective nouns, avoiding subjective adjectives.
-
-# {
-#   "road_layout": "Describe the road layout (e.g., crossroad, t-junction, underpass, tunnel_entrance, curve, straight_road)",
-#   "left_structure_type": "Describe the 'type' of the main left structure (e.g., high-rise, shop, apartment, trees, sound_barrier, N/A)",
-#   "left_structure_feature": "Describe 'one key feature' of the main left structure (e.g., glass_facade, brick_wall, large_sign, N/A)",
-#   "right_structure_type": "Describe the 'type' of the main right structure (e.g., high-rise, shop, apartment, trees, sidewalk, N/A)",
-#   "right_structure_feature": "Describe 'one key feature' of the main right structure (e.g., arcade, red_roof, bus_stop, N/A)",
-#   "distant_landmark": "Describe the single clearest distant, fixed landmark (e.g., mountain, tower, building_skyline, N/A)"
-# }
-# """
-ENGLISH_JSON_PROMPT = """You are a precise, objective scene analysis AI.
-Your sole task is to analyze the 'permanent structural features' of this image and return a JSON.
-
-[STRICT INSTRUCTIONS]
-1.  **Completely ignore** all 'transient' information, including: time (day, night, dusk), weather (sunny, rainy, foggy), and lighting (shadows, streetlights, headlights).
-2.  **Completely ignore** all 'mobile' objects, including: all vehicles, pedestrians, bicycles.
-3.  **Focus only** on fixed, immovable structures.
+[STRICT RULES]
+1. Treat all vehicles, pedestrians, cyclists, animals, and moving objects as invisible, and do not mention them anywhere.
+2. Do not mention time of day, weather, sunlight, shadows, headlights, or reflections.
+3. Focus only on fixed, immovable structures such as roads, buildings, barriers, trees, and permanent signs.
+4. For very similar images of the same location, use exactly the same wording for each JSON field whenever possible.
 
 [OUTPUT FORMAT]
-You *must* return *only* the JSON object below, with no additional explanatory text or comments.
-If a feature is 'not visible' or 'non-existent', use the exact value "N/A".
-Use short, objective nouns, avoiding subjective adjectives.
+You must output exactly one JSON object and nothing else (no explanations, no markdown, no comments).
+Use the following JSON skeleton, keeping the same keys and order:
 
 {
-  "road_layout": "Describe the road layout (e.g., crossroad, t-junction, underpass, tunnel_entrance, curve, straight_road)",
-  "left_structure_type": "Describe the 'type' of the main left structure (e.g., high-rise, shop, apartment, trees, sound_barrier, N/A)",
-  "left_structure_feature": "Describe 'one key feature' of the main left structure (e.g., glass_facade, brick_wall, large_sign, N/A)",
-  "right_structure_type": "Describe the 'type' of the main right structure (e.g., high-rise, shop, apartment, trees, sidewalk, N/A)",
-  "right_structure_feature": "Describe 'one key feature' of the main right structure (e.g., arcade, red_roof, bus_stop, N/A)",
-  "distant_landmark": "Describe the single clearest distant, fixed landmark (e.g., mountain, tower, building_skyline, N/A)",
-  "ocr_text_on_signs": "Read and list any clear, readable text from *permanent* signs (e.g., '7-ELEVEN', 'MICHELANGELO', 'Xinyi Rd.', 'STOP', N/A)"
+  "primary_landmark": "",
+  "road_layout": "",
+  "road_markings": [],
+  "left_structure_type": "",
+  "right_structure_type": "",
+  "vegetation_type": "",
+  "key_street_furniture": [],
+  "ocr_text_on_signs": []
 }
-"""
+
+Now fill each field following these rules:
+
+- "primary_landmark":
+  The single most prominent fixed landmark in view as a short noun phrase,
+  for example: "classical_museum_building", "idea_factory_building",
+  "underpass_bridge", or "N/A".
+
+- "road_layout":
+  Choose one from the following only:
+  "crossroad", "t_junction", "roundabout", "underpass",
+  "overpass", "straight_road", "curve_road",
+  "tunnel_entrance", "N/A".
+
+- "road_markings":
+  A list of permanent road markings as snake_case tokens,
+  such as ["crosswalk", "double_yellow_line", "bike_lane"],
+  or ["N/A"] if none are visible.
+
+- "left_structure_type":
+  The type of the immediate left structure next to the road edge, chosen from:
+  "high_rise", "shop", "apartment", "brick_building",
+  "sound_barrier", "trees", "open_field", "N/A".
+
+- "right_structure_type:
+  The type of the immediate right structure next to the road edge,
+  using the same vocabulary as "left_structure_type".
+
+- "vegetation_type":
+  The dominant fixed vegetation type, chosen from:
+  "palm_trees", "deciduous_trees", "conifer_trees",
+  "bushes", "grass", "N/A".
+
+- "key_street_furniture":
+  A list of fixed sidewalk objects from the set:
+  "bus_stop", "traffic_light", "guardrail",
+  "fire_hydrant", "bench", "street_lamp",
+  "utility_box", or "N/A" if none.
+
+- "ocr_text_on_signs":
+  A list of uppercase text strings read from permanent signs,
+  for example: "MUSEUM", "IDEA FACTORY", "STOP",
+  or ["N/A"] if no readable text is visible.
+
+Remember:
+Return only the JSON object, with double quotes around all keys
+and string values.
+'''
 
 # --- 2. Setup Device ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -148,7 +174,7 @@ with torch.no_grad():
         ).to(DEVICE)
 
         # 5.4 LLaVA 執行「批次推論」
-        outputs = model.generate(**inputs, max_new_tokens=512)
+        outputs = model.generate(**inputs, max_new_tokens=256)
         
         # 5.5 批次解碼
         # 使用 batch_decode 來一次解碼所有 N 個輸出
