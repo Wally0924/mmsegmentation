@@ -110,22 +110,34 @@ graph TD
 :::
 
 ```python
-# 權重設定 (建議根據 02_evaluate_weights.py 的結果調整)
-IMAGE_WEIGHT = 0.6 
-TEXT_WEIGHT = 0.4
+# 權重設定 (目前設定)
+`IMAGE_WEIGHT` = 0.55
+`TEXT_WEIGHT` = 0.45
 # 模式：Concatenate (拼接)
 ```
 
 ### `02_run_clustering.py`
 ```python
 # 初始 K 值 (建議設稍大，讓演算法有空間合併)
-INITIAL_K = 36 
+`INITIAL_K` = 46 
 # 合併門檻 (越高代表越嚴格，越不像就不合併)
-MERGE_THRESHOLD = 0.92
+`MERGE_THRESHOLD` = 0.93
 ```
 
 ### `03_calculate_probabilities.py`
+此腳本負責將 VLM 的文字描述轉化為機率分佈。為了避免過度過濾導致關鍵資訊遺失，我們引入了「強制保留」機制。
+
 ```python
 # 機率門檻 (只保留出現機率高於此值的特徵)
 PROBABILITY_THRESHOLD = 0.5
+
+# [關鍵設定] 強制保留名單 (Top-1 Fallback)
+# 對於描述性強、變異度高的欄位 (如地標描述)，很難有 50% 的影像完全一致。
+# 為了避免這些欄位被清空，我們強制保留該群組中「出現最多次」的 1 個描述，
+# 即使它的機率低於門檻 (例如只有 0.3)。
+FORCE_KEEP_TOP_1_FIELDS = [
+    "primary_landmark", 
+    "distinctive_features", 
+    "surrounding_structure"
+]
 ```
