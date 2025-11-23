@@ -1,79 +1,124 @@
 import numpy as np
 from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
 import warnings
+import os
 
-# 忽略 scikit-learn 關於記憶體洩漏的良性警告
+# 忽略 sklearn 關於記憶體洩漏的良性警告
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.cluster._kmeans")
 
-# --- 1. 設定 ---
-INPUT_FEATURES_FILE = "all_joint_features.npy"       # 階段一的特徵檔案
-OUTPUT_LABELS_FILE = "cluster_labels.npy"      # 輸出：每張圖片的群組 ID
-OUTPUT_CENTERS_FILE = "cluster_centers.npy"    # 輸出：K 個群組的中心向量 (記憶庫的 Key)
+# --- 設定 (Settings) ---
+INPUT_FEATURES_FILE = "all_joint_features.npy"   # 輸入：融合特徵 (Teacher)
+OUTPUT_LABELS_FILE = "cluster_labels.npy"        # 輸出：最終分群標籤 (合併後)
 
-K_CLUSTERS = 25
+# 1. 初始 K 值 (建議設大一點，讓 K-Means 先切細)
+INITIAL_K = 36 
 
-# --------------------
+# 2. 合併門檻 (相似度高於此值則合併)
+# 建議：0.92 ~ 0.96。數值越高代表「非常非常像」才合併。
+MERGE_THRESHOLD = 0.92
 
-print(f"--- 階段二：執行 K-Means 群集 ---")
-print(f"目標群組數量 K = {K_CLUSTERS}")
+print(f"--- 階段 2：VLM 指導分群 (Initial K={INITIAL_K}, Merge Threshold={MERGE_THRESHOLD}) ---")
 
-# --- 2. 載入特徵向量 ---
-print(f"正在載入特徵檔案: {INPUT_FEATURES_FILE}...")
-try:
-    features = np.load(INPUT_FEATURES_FILE)
-except FileNotFoundError:
-    print(f"錯誤：找不到 {INPUT_FEATURES_FILE} 檔案！")
-    print("請先執行 01_extract_features.py 腳本。")
+# --- 1. 載入特徵 ---
+if not os.path.exists(INPUT_FEATURES_FILE):
+    print(f"錯誤：找不到 {INPUT_FEATURES_FILE}。請先執行 01c。")
     exit()
 
-if features.shape[0] < K_CLUSTERS:
-    print(f"錯誤：K 值 ({K_CLUSTERS}) 大於總影像數量 ({features.shape[0]})。")
-    print("請降低 K_CLUSTERS 的值。")
+print(f"正在載入特徵: {INPUT_FEATURES_FILE}...")
+features = np.load(INPUT_FEATURES_FILE)
+
+if features.shape[0] < INITIAL_K:
+    print(f"錯誤：K 值 ({INITIAL_K}) 大於資料總數 ({features.shape[0]})。")
     exit()
 
-print(f"成功載入 {features.shape[0]} 個特徵 (維度: {features.shape[1]})。")
-
-# --- 3. 執行 K-Means 演算法 ---
-print(f"正在對 {features.shape[0]} 個向量執行 K-Means (K={K_CLUSTERS})...")
-
+# --- 2. 執行 K-Means (初始分群) ---
+print("正在執行初始 K-Means...")
 kmeans = KMeans(
-    n_clusters=K_CLUSTERS,  # 您設定的 K 值
-    init="k-means++",       # 聰明的初始化方法，能加速收斂
-    n_init='auto',          # 'auto' 是 scikit-learn 1.4 版後推薦的預設值
-    max_iter=300,           # 每次執行的最大迭代次數
-    random_state=42         # 設為固定數字 (42) 確保每次執行的結果都一樣
+    n_clusters=INITIAL_K,
+    init="k-means++",
+    n_init='auto',
+    max_iter=100,
+    random_state=42 
 )
-
-# .fit() 會執行所有計算
 kmeans.fit(features)
-
-print("K-Means 計算完成！")
-
-# --- 4. 儲存結果 ---
-# kmeans.labels_：一個 1D 陣列 (長度 387)，
-#                 其值為 0 到 K-1，代表每張圖片被分到的群組 ID
 labels = kmeans.labels_
 
-# kmeans.cluster_centers_：一個 2D 陣列 (形狀 K x 768)，
-#                           代表 K 個群組的「中心向量」
-centers = kmeans.cluster_centers_
+print(f"初始分群完成，共 {INITIAL_K} 個群組。")
 
-print(f"正在儲存群組標籤 (Labels) 到 {OUTPUT_LABELS_FILE}...")
-np.save(OUTPUT_LABELS_FILE, labels)
+# --- 3. 後處理：自動合併相似群組 ---
+print("\n--- 開始後處理：合併相似群組 ---")
 
-print(f"正在儲存群組中心 (Centers) 到 {OUTPUT_CENTERS_FILE}...")
-np.save(OUTPUT_CENTERS_FILE, centers)
+while True:
+    # A. 計算當前所有群組的中心點
+    unique_labels = np.unique(labels)
+    n_clusters = len(unique_labels)
+    
+    if n_clusters < 2:
+        break
 
-# --- 5. (額外) 顯示群集摘要 ---
-# 這非常有用，可以讓您知道每個群組分到了多少張圖片
-print("\n--- 群集結果摘要 ---")
-# np.bincount 會計算 0, 1, 2... 各出現了幾次
-cluster_counts = np.bincount(labels)
+    centroids = []
+    valid_ids = []
+    
+    for label in unique_labels:
+        # 找出該群組的所有向量
+        mask = (labels == label)
+        group_features = features[mask]
+        
+        # 計算平均中心
+        mean_vec = np.mean(group_features, axis=0)
+        # L2 標準化 (為了計算 Cosine Similarity)
+        mean_vec = mean_vec / (np.linalg.norm(mean_vec) + 1e-9)
+        
+        centroids.append(mean_vec)
+        valid_ids.append(label)
+    
+    centroids = np.array(centroids)
+    
+    # B. 計算相似度矩陣
+    sim_matrix = cosine_similarity(centroids)
+    np.fill_diagonal(sim_matrix, -1) # 忽略自己
+    
+    # C. 找出最相似的一對
+    max_sim = np.max(sim_matrix)
+    
+    # 如果最高相似度低於門檻，停止合併
+    if max_sim < MERGE_THRESHOLD:
+        break
+        
+    # D. 執行合併
+    idx_a, idx_b = np.unravel_index(np.argmax(sim_matrix), sim_matrix.shape)
+    label_a = valid_ids[idx_a]
+    label_b = valid_ids[idx_b]
+    
+    # 為了整潔，將 ID 較大的併入 ID 較小的
+    target_id = min(label_a, label_b)
+    source_id = max(label_a, label_b)
+    
+    print(f"  >> 合併: 群組 {source_id} -> 群組 {target_id} (相似度: {max_sim:.4f})")
+    
+    # 更新標籤
+    labels[labels == source_id] = target_id
 
-for i in range(K_CLUSTERS):
-    print(f"群組 {i:02d} (地點 {i:02d}): 分配到 {cluster_counts[i]} 張影像")
+# --- 4. 重整 ID (Remap 0..N-1) ---
+print("正在重整群組編號...")
+unique_final = np.unique(labels)
+final_labels = np.zeros_like(labels)
 
-print("\n---")
-print("階段二：K-Means 群集 - 完成！")
-print(f"您的群組標籤已儲存在: {OUTPUT_LABELS_FILE}")
-print(f"您的群組中心向量已儲存在: {OUTPUT_CENTERS_FILE}")
+for new_id, old_id in enumerate(unique_final):
+    final_labels[labels == old_id] = new_id
+
+FINAL_K = len(unique_final)
+
+# --- 5. 儲存結果 ---
+print(f"\n合併完成！群組數量從 {INITIAL_K} 縮減為 {FINAL_K}。")
+print(f"正在儲存最終標籤到 {OUTPUT_LABELS_FILE}...")
+np.save(OUTPUT_LABELS_FILE, final_labels)
+
+# --- 6. 摘要 ---
+print("\n--- 分群摘要 ---")
+counts = np.bincount(final_labels)
+for i in range(FINAL_K):
+    print(f"群組 {i:02d}: {counts[i]} 張影像")
+
+print("\n階段 2 (分群+合併) - 完成！")

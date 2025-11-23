@@ -5,7 +5,7 @@ import os
 import shutil
 
 # --- 1. 設定 ---
-INPUT_CENTERS_FILE = "cluster_centers.npy"
+INPUT_CENTERS_FILE = "image_only_cluster_centers.npy"
 INPUT_SUMMARIES_FILE = "semantic_summaries.json"
 
 CHROMA_DB_PATH = "memory_db_chroma"

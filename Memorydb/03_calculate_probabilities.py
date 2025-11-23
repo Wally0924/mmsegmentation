@@ -5,16 +5,13 @@ from collections import Counter
 from tqdm import tqdm
 import warnings
 
-# --- 1. Settings ---
-K_CLUSTERS = 25
 
 # (輸入) VLM-First 階段的產出
-INPUT_LABELS_FILE = "cluster_labels.npy"      # 來自 02_ (基於文字向量) 的分群標籤
+INPUT_LABELS_FILE = "cluster_labels.npy"      # 來自 02_ 分群標籤
 INPUT_FILENAMES_FILE = "image_filenames.json" # 來自 01_ 的原始檔名索引
 INPUT_SUMMARIES_FILE = "llava_summaries.json" # 來自 01b_ (VLM 摘要)
-
-# (輸出) 最終的 "Value"
 OUTPUT_SUMMARIES_FILE = "semantic_summaries.json" 
+PROBABILITY_THRESHOLD = 0.5
 
 # (可選) 忽略 JSON 剖析失敗的警告
 warnings.filterwarnings("ignore", message="invalid escape sequence")
@@ -29,6 +26,8 @@ except FileNotFoundError as e:
     print(f"ERROR: File not found: {e.filename}")
     print("Please run scripts 01b, 01c, and 02 first.")
     exit()
+
+K_CLUSTERS = int(np.max(labels)) + 1
 
 print("All files loaded successfully.")
 
@@ -96,7 +95,15 @@ for cluster_id in tqdm(range(K_CLUSTERS), desc="Calculating Probabilities"):
     probabilities_dict = {}
     for feature, count in feature_counter.items():
         probability = count / total_images_in_cluster
-        probabilities_dict[feature] = round(probability, 2) # 四捨五入到小數點後 2 位
+        # 只保留高於閾值的特徵
+        if probability >= PROBABILITY_THRESHOLD:
+            probabilities_dict[feature] = round(probability, 2)
+
+    # 如果過濾後變空了 (代表該地點沒有任何顯著特徵)，至少保留一個最高頻的，避免空的
+    if not probabilities_dict and feature_counter:
+        most_common_feat, count = feature_counter.most_common(1)[0]
+        prob = round(count / total_images_in_cluster, 2)
+        probabilities_dict[most_common_feat] = prob
     
     # 3.4 儲存結果
     # 我們將這個「機率字典」轉換為「JSON 字串」，這就是我們的 Value

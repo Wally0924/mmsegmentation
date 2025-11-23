@@ -13,7 +13,7 @@ INPUT_FEATURES_FILE = "all_joint_features.npy"
 
 # --- 2. 設定您要測試的 K 值範圍 ---
 K_RANGE_START = 10
-K_RANGE_END = 41
+K_RANGE_END = 80
 K_RANGE_STEP = 1 
 
 # --------------------
@@ -43,7 +43,7 @@ for k in tqdm(k_values, desc="Testing K values"):
         n_clusters=k,
         init="k-means++",
         n_init='auto',
-        max_iter=300,
+        max_iter=100,
         random_state=42 # 保持一致性
     )
     
@@ -55,7 +55,6 @@ for k in tqdm(k_values, desc="Testing K values"):
     inertia_scores.append(inertia)
     
     # 2. 計算 Silhouette Score (輪廓係數)
-    # (這是比較慢的一步)
     score = silhouette_score(features, labels, metric='cosine') # 使用餘弦距離
     silhouette_scores.append(score)
     

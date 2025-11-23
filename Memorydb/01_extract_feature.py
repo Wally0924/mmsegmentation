@@ -14,7 +14,8 @@ OUTPUT_FEATURES_FILE = "all_image_features.npy"     # 儲存所有特徵向量�
 OUTPUT_FILENAMES_FILE = "image_filenames.json"  # 儲存對應檔名的檔案
 
 # 推薦的 Image Encoder (CLIP)
-MODEL_ID = "openai/clip-vit-large-patch14"
+# MODEL_ID = "openai/clip-vit-large-patch14"
+MODEL_ID = "facebook/dinov2-base"  # 試試看這個 DINOv2 模型！
 
 # 忽略 PIL 的一些警告
 warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
@@ -61,7 +62,8 @@ with torch.no_grad():
         
         # 2. 獲取特徵：
         # model.get_image_features() 是 CLIP 專門用來提取影像特徵的函式
-        image_features = model.get_image_features(**inputs)
+        # image_features = model.get_image_features(**inputs)
+        image_features = model(**inputs).last_hidden_state.mean(dim=1) # DINOv2 的特徵提取方式
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         # 3. 儲存結果：
         #    - .cpu() 將資料從 GPU 移回 CPU
