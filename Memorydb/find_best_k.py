@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.cluster.
 INPUT_FEATURES_FILE = "all_joint_features.npy"
 
 # --- 2. 設定您要測試的 K 值範圍 ---
-K_RANGE_START = 10
+K_RANGE_START = 2
 K_RANGE_END = 50
 K_RANGE_STEP = 1 
 

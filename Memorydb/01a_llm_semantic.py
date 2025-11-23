@@ -19,76 +19,69 @@ OUTPUT_SUMMARIES_FILE = "llava_summaries.json"  # 新的 VLM 摘要輸出
 MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
 
 ENGLISH_JSON_PROMPT = '''
-You are a precise, objective scene analysis AI.
-Your task is to analyze only the permanent structural features of this road scene image and output one JSON object.
+You are a specialized scene analysis AI for a synthetic virtual city.
+Your task is to identify the unique "Zone Fingerprint" of this location based on architectural style and layout.
 
 [STRICT RULES]
-1. Treat all vehicles, pedestrians, cyclists, animals, and moving objects as invisible, and do not mention them anywhere.
-2. Do not mention time of day, weather, sunlight, shadows, headlights, or reflections.
-3. Focus only on fixed, immovable structures such as roads, buildings, barriers, trees, and permanent signs.
-4. For very similar images of the same location, use exactly the same wording for each JSON field whenever possible.
+1. IGNORE all moving objects (cars, pedestrians). 
+2. IGNORE lighting/weather/time. Focus on the permanent "texture" of the city.
+3. DO NOT READ TEXT. Ignore all signboards and banners. Focus on the structure holding them.
+4. OUTPUT FORMAT: Single JSON object only.
 
-[OUTPUT FORMAT]
-You must output exactly one JSON object and nothing else (no explanations, no markdown, no comments).
-Use the following JSON skeleton, keeping the same keys and order:
-
+[JSON SKELETON]
 {
-  "primary_landmark": "",
-  "road_layout": "",
-  "road_markings": [],
-  "left_structure_type": "",
-  "right_structure_type": "",
-  "vegetation_type": "",
-  "key_street_furniture": [],
-  "ocr_text_on_signs": []
+  "zone_archetype": "...",
+  "architectural_style": "...",
+  "road_layout": "...",
+  "sky_visibility": "...",
+  "distinctive_structure": "...",
+  "left_side_building": "...",
+  "right_side_building": "...",
+  "vegetation_signature": "...",
+  "road_markings": []
 }
 
-Now fill each field following these rules:
+[FIELD GUIDELINES]
 
-- "primary_landmark":
-  The single most prominent fixed landmark in view as a short noun phrase,
-  for example: "classical_museum_building", "idea_factory_building",
-  "underpass_bridge", or "N/A".
+- "zone_archetype":
+  Classify the general vibe of this area:
+  ["industrial_district", "classical_cultural_center", "resort_boulevard", 
+   "dense_downtown_canyon", "residential_suburb", "construction_zone", "highway_overpass_area"]
+
+- "architectural_style":
+  The dominant material and design style:
+  ["red_brick_industrial", "beaux_arts_stone_classical", "modern_glass_curtain", 
+   "beige_stucco_resort", "mixed_urban_facades", "concrete_brutalist"]
 
 - "road_layout":
-  Choose one from the following only:
-  "crossroad", "t_junction", "roundabout", "underpass",
-  "overpass", "straight_road", "curve_road",
-  "tunnel_entrance", "N/A".
+  ["crossroad", "t_junction", "straight_avenue", "curved_boulevard", 
+   "narrow_alley", "wide_intersection_with_island"]
+
+- "sky_visibility":
+  How much sky is visible? This distinguishes downtown canyons from open resorts.
+  ["narrow_strip_visible", "open_sky_wide", "blocked_by_overhead_structure", "partially_obstructed_by_trees"]
+
+- "distinctive_structure":
+  Look for ONE unique identifier that separates this place from others:
+  ["pedestrian_skybridge_connecting_buildings", "monumental_columned_portico", 
+   "grand_stone_staircase", "dense_cluster_of_skyscrapers", "balcony_lined_apartments", 
+   "large_billboard_frame", "N/A"]
+
+- "left_side_building" & "right_side_building":
+  Describe the immediate buildings:
+  ["factory_warehouse_brick", "classical_museum_wing", "glass_skyscraper", 
+   "stucco_hotel_complex", "parking_garage", "low_rise_shops", "construction_site"]
+
+- "vegetation_signature":
+  The type of trees is a key location marker in this city:
+  ["palm_tree_rows", "large_canopy_deciduous_trees", "sparse_street_saplings", 
+   "dense_tropical_bushes", "no_vegetation"]
 
 - "road_markings":
-  A list of permanent road markings as snake_case tokens,
-  such as ["crosswalk", "double_yellow_line", "bike_lane"],
-  or ["N/A"] if none are visible.
+  ["crosswalk_ladder_style", "double_yellow_lines", "white_lane_dividers", 
+   "hatched_junction_box", "stop_line", "none"]
 
-- "left_structure_type":
-  The type of the immediate left structure next to the road edge, chosen from:
-  "high_rise", "shop", "apartment", "brick_building",
-  "sound_barrier", "trees", "open_field", "N/A".
-
-- "right_structure_type:
-  The type of the immediate right structure next to the road edge,
-  using the same vocabulary as "left_structure_type".
-
-- "vegetation_type":
-  The dominant fixed vegetation type, chosen from:
-  "palm_trees", "deciduous_trees", "conifer_trees",
-  "bushes", "grass", "N/A".
-
-- "key_street_furniture":
-  A list of fixed sidewalk objects from the set:
-  "bus_stop", "traffic_light", "guardrail",
-  "fire_hydrant", "bench", "street_lamp",
-  "utility_box", or "N/A" if none.
-
-- "ocr_text_on_signs":
-  A list of uppercase text strings read from permanent signs,
-  for example: "MUSEUM", "IDEA FACTORY", "STOP",
-  or ["N/A"] if no readable text is visible.
-
-Remember:
-Return only the JSON object, with double quotes around all keys
-and string values.
+Remember: Output valid JSON only. Use the exact tokens provided above where possible.
 '''
 
 # --- 2. Setup Device ---
@@ -111,6 +104,7 @@ model.eval()
 print("VLM Model loaded successfully.")
 
 # --- 4. Load Image Filename List ---
+# 根據INPUT_FILENAMES_FILE載入所有影像檔名
 print(f"Loading image filenames from {INPUT_FILENAMES_FILE}...")
 try:
     with open(INPUT_FILENAMES_FILE, 'r') as f:

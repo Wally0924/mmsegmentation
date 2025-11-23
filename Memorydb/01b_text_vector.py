@@ -59,14 +59,25 @@ for filename in filenames_list:
 
         # 根據你的 schema 組成固定順序的字串
         parts = []
-        parts.append(f"primary_landmark={data.get('primary_landmark', 'N/A')}")
-        parts.append(f"road_layout={data.get('road_layout', 'N/A')}")
-        parts.append("road_markings=" + "|".join(data.get("road_markings", [])))
-        parts.append(f"left_structure_type={data.get('left_structure_type', 'N/A')}")
-        parts.append(f"right_structure_type={data.get('right_structure_type', 'N/A')}")
-        parts.append(f"vegetation_type={data.get('vegetation_type', 'N/A')}")
-        parts.append("key_street_furniture=" + "|".join(data.get("key_street_furniture", [])))
-        parts.append("ocr_text_on_signs=" + "|".join(data.get("ocr_text_on_signs", [])))
+        # 將新的欄位組合成語意字串
+        # 加權策略：把最具區別力的特徵放在前面
+        
+        # 1. 區域原型與建築風格 (最強特徵)
+        parts.append(f"zone={data.get('zone_archetype', 'N/A')}")
+        parts.append(f"style={data.get('architectural_style', 'N/A')}")
+        
+        # 2. 獨特地標 (例如天橋、博物館柱子)
+        parts.append(f"landmark={data.get('distinctive_structure', 'N/A')}")
+        
+        # 3. 視野與植被 (區分度假區 vs 市中心)
+        parts.append(f"sky={data.get('sky_visibility', 'N/A')}")
+        parts.append(f"veg={data.get('vegetation_signature', 'N/A')}")
+        
+        # 4. 基礎結構
+        parts.append(f"layout={data.get('road_layout', 'N/A')}")
+        parts.append(f"left={data.get('left_side_building', 'N/A')}")
+        parts.append(f"right={data.get('right_side_building', 'N/A')}")
+        parts.append("markings=" + "|".join(data.get("road_markings", [])))
 
         canonical_str = "; ".join(parts)
         json_strings_to_encode.append(canonical_str)
