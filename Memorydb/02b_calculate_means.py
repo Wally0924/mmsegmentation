@@ -12,7 +12,7 @@ INPUT_IMAGE_FEATURES_FILE = "all_image_features.npy"
 # (輸出) 我們要產生的「快速 Key」 (供 04_build_memory_db.py 使用)
 OUTPUT_CENTERS_FILE = "image_only_cluster_centers.npy"
 
-print(f"--- 階段 3a：計算純影像中心點 (Fast Key) ---")
+print(f"--- 階段 2b：計算純影像中心點 (Fast Key) ---")
 
 # --- 1. 載入資料 ---
 print("正在載入資料...")

@@ -56,7 +56,7 @@ graph TD
 此階段決定如何結合影像與文字特徵以達到最佳分群效果。
 
 4.  **尋找最佳融合權重 (Optional)**
-    * 執行：`python 02_evaluate_weights.py` (請參考補充腳本)
+    * 執行：`python evaluate_para.py` (請參考補充腳本)
     * 說明：透過 Grid Search 找出最佳的 `IMAGE_WEIGHT` 與 `TEXT_WEIGHT` 組合。
 5.  **執行加權融合**
     * 執行：`python 01c_merge_feature.py`

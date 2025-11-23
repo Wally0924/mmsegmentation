@@ -5,118 +5,126 @@ from collections import Counter
 from tqdm import tqdm
 import warnings
 
+# --- 1. 設定 ---
+INPUT_LABELS_FILE = "cluster_labels.npy"
+INPUT_FILENAMES_FILE = "image_filenames.json"
+INPUT_SUMMARIES_FILE = "llava_summaries.json"
+OUTPUT_SUMMARIES_FILE = "semantic_summaries.json"
 
-# (輸入) VLM-First 階段的產出
-INPUT_LABELS_FILE = "cluster_labels.npy"      # 來自 02_ 分群標籤
-INPUT_FILENAMES_FILE = "image_filenames.json" # 來自 01_ 的原始檔名索引
-INPUT_SUMMARIES_FILE = "llava_summaries.json" # 來自 01b_ (VLM 摘要)
-OUTPUT_SUMMARIES_FILE = "semantic_summaries.json" 
+# 機率門檻
 PROBABILITY_THRESHOLD = 0.5
 
-# (可選) 忽略 JSON 剖析失敗的警告
+# [新設定] 強制保留名單
+# 這些欄位通常描述性很強，變異大，很難超過 0.5。
+# 我們強制保留該欄位中出現最多次的 1 個，以免資料庫失去這些關鍵細節。
+FORCE_KEEP_TOP_1_FIELDS = ["primary_landmark", "distinctive_features", "surrounding_structure"]
+
 warnings.filterwarnings("ignore", message="invalid escape sequence")
 
-# --- 2. Load Source Files ---
-print(f"Loading source files...")
-try:
-    labels = np.load(INPUT_LABELS_FILE)             
-    filenames = json.load(open(INPUT_FILENAMES_FILE, 'r'))
-    summaries_dict = json.load(open(INPUT_SUMMARIES_FILE, 'r', encoding='utf-8'))
-except FileNotFoundError as e:
-    print(f"ERROR: File not found: {e.filename}")
-    print("Please run scripts 01b, 01c, and 02 first.")
-    exit()
+def main():
+    print(f"--- Phase 3: Calculating Probabilities (Field-Aware Version) ---")
 
-K_CLUSTERS = int(np.max(labels)) + 1
+    # --- 2. Load Source Files ---
+    print(f"Loading source files...")
+    if not os.path.exists(INPUT_LABELS_FILE):
+        print(f"ERROR: {INPUT_LABELS_FILE} not found.")
+        exit()
 
-print("All files loaded successfully.")
+    # 使用 with open 確保資源釋放
+    try:
+        labels = np.load(INPUT_LABELS_FILE)
+        with open(INPUT_FILENAMES_FILE, 'r') as f:
+            filenames = json.load(f)
+        with open(INPUT_SUMMARIES_FILE, 'r', encoding='utf-8') as f:
+            summaries_dict = json.load(f)
+    except Exception as e:
+        print(f"ERROR loading files: {e}")
+        exit()
 
-# --- 3. Main Loop: Calculate Probabilities for K Clusters ---
-print(f"\n--- New Phase 3: Calculating Probabilities for {K_CLUSTERS} clusters ---")
+    K_CLUSTERS = int(np.max(labels)) + 1
+    print(f"Loaded {len(filenames)} files, {K_CLUSTERS} clusters.")
 
-# final_summaries: 最終的 "Value" 字典 { "0": "{...prob...}", "1": "{...prob...}" }
-final_summaries = {} 
+    # --- 3. Main Loop ---
+    final_summaries = {} 
 
-for cluster_id in tqdm(range(K_CLUSTERS), desc="Calculating Probabilities"):
-    
-    # 3.1 找出屬於這個群組的所有圖片的「索引」
-    indices = np.where(labels == cluster_id)[0]
-    
-    # 該群組的影像總數
-    total_images_in_cluster = len(indices)
-
-    if total_images_in_cluster == 0:
-        tqdm.write(f"Cluster {cluster_id}: No images assigned. Skipping.")
-        final_summaries[str(cluster_id)] = '{"error": "N/A (No images in cluster)"}'
-        continue
-    
-    # 3.2 (關鍵) 統計此群組中「所有」特徵
-    # 我們使用 Counter 來統計 "key:value" 對
-    # 範例: {"road_layout:T-junction": 18, "ocr_text:7-ELEVEN": 15, ...}
-    feature_counter = Counter()
-    
-    for idx in indices:
-        filename = filenames[idx]
-        if filename not in summaries_dict:
-            continue
-            
-        json_str = summaries_dict[filename]
+    for cluster_id in tqdm(range(K_CLUSTERS), desc="Calculating"):
         
-        try:
-            # (A) 剖析 LLaVA 產生的 JSON 字串
-            # 範例: '{"road_layout": "T-junction", ...}' -> {"road_layout": "T-junction", ...}
-            # 我們使用 'strict=False' 來容錯 (例如 LLaVA 產生的 JSON 中有換行)
-            data = json.loads(json_str, strict=False) 
-        except json.JSONDecodeError:
-            tqdm.write(f"WARNING: Cluster {cluster_id}, file {filename} - JSON decode error. Skipping.")
+        indices = np.where(labels == cluster_id)[0]
+        total_images = len(indices)
+
+        if total_images == 0:
+            final_summaries[str(cluster_id)] = json.dumps({"error": "Empty Cluster"})
             continue
-            
-        # (B) 遍歷 JSON 中的 Key-Value 對
-        for key, value in data.items():
-            # (C) 我們只統計「有意義」的 (非 N/A) 特徵
-            if value != "N/A" and value is not None:
-                
-                # (D) 將 Key 和 Value 組合為一個「獨特特徵」
-                # 範例: "road_layout" + "T-junction" -> "road_layout:T-junction"
-                # 範例: "ocr_text_on_signs" + "7-ELEVEN" -> "ocr_text_on_signs:7-ELEVEN"
-                feature_key = f"{key}:{value}"
-                
-                # (E) 累加計數
-                feature_counter.update([feature_key])
-
-    if not feature_counter:
-        tqdm.write(f"Cluster {cluster_id}: No valid features found. Skipping.")
-        final_summaries[str(cluster_id)] = '{"error": "N/A (No valid features found)"}'
-        continue
         
-    # 3.3 (關鍵) 將「計數」轉換為「機率」
-    # 範例: "road_layout:T-junction" 出現了 18 次，總共 20 張圖
-    # 機率 = 18 / 20 = 0.9
-    probabilities_dict = {}
-    for feature, count in feature_counter.items():
-        probability = count / total_images_in_cluster
-        # 只保留高於閾值的特徵
-        if probability >= PROBABILITY_THRESHOLD:
-            probabilities_dict[feature] = round(probability, 2)
+        # [修改] 使用「字典套 Counter」來分欄位統計
+        # 結構: { "road_layout": Counter(), "ocr_text": Counter(), ... }
+        field_counters = {} 
+        
+        for idx in indices:
+            filename = filenames[idx]
+            if filename not in summaries_dict:
+                continue
+                
+            try:
+                data = json.loads(summaries_dict[filename], strict=False)
+            except json.JSONDecodeError:
+                continue
+            
+            for key, value in data.items():
+                if value == "N/A" or value is None:
+                    continue
+                
+                # 初始化該欄位的 Counter
+                if key not in field_counters:
+                    field_counters[key] = Counter()
 
-    # 如果過濾後變空了 (代表該地點沒有任何顯著特徵)，至少保留一個最高頻的，避免空的
-    if not probabilities_dict and feature_counter:
-        most_common_feat, count = feature_counter.most_common(1)[0]
-        prob = round(count / total_images_in_cluster, 2)
-        probabilities_dict[most_common_feat] = prob
-    
-    # 3.4 儲存結果
-    # 我們將這個「機率字典」轉換為「JSON 字串」，這就是我們的 Value
-    final_value_string = json.dumps(probabilities_dict, ensure_ascii=False)
-    final_summaries[str(cluster_id)] = final_value_string
-    # tqdm.write(f"Cluster {cluster_id:02d} Probabilities: {final_value_string}")
+                # (您的正確邏輯) 列表拆解
+                if isinstance(value, list):
+                    for item in value:
+                        if item != "N/A":
+                            # 這裡只存值，不存 key 前綴，最後再組裝
+                            field_counters[key].update([str(item)])
+                else:
+                    field_counters[key].update([str(value)])
 
-# --- 4. Save All Summaries ---
-print("\n---")
-print(f"Saving {len(final_summaries)} probability summaries to {OUTPUT_SUMMARIES_FILE}...")
+        # --- 3.3 計算機率與補位 ---
+        cluster_probs = {}
 
-with open(OUTPUT_SUMMARIES_FILE, 'w', encoding='utf-8') as f:
-    json.dump(final_summaries, f, indent=4, ensure_ascii=False)
+        for key, counter in field_counters.items():
+            if not counter:
+                continue
 
-print("--- New Phase 3 (Probability Calculation): Complete ---")
-print(f"Your database 'Values' ({OUTPUT_SUMMARIES_FILE}) are now Probability JSONs.")
+            # A. 先篩選出大於門檻的
+            candidates = {}
+            for val, count in counter.items():
+                prob = round(count / total_images, 2)
+                if prob >= PROBABILITY_THRESHOLD:
+                    candidates[val] = prob
+            
+            # B. [關鍵邏輯] 補位機制
+            # 如果篩選後是空的，但這個欄位很重要 (在強制名單內)
+            # 就把出現最多次的那個抓回來
+            if not candidates and key in FORCE_KEEP_TOP_1_FIELDS:
+                most_common_val, count = counter.most_common(1)[0]
+                prob = round(count / total_images, 2)
+                candidates[most_common_val] = prob # 強制加入
+            
+            # C. 將結果加入最終字典 (組裝 key:value)
+            for val, prob in candidates.items():
+                # 為了讓資料庫搜尋方便，我們把 key 拼回去
+                # 例如: "road_layout:T-junction"
+                full_key = f"{key}:{val}"
+                cluster_probs[full_key] = prob
+
+        # 儲存
+        final_summaries[str(cluster_id)] = json.dumps(cluster_probs, ensure_ascii=False)
+
+    # --- 4. Save ---
+    print(f"\nSaving results to {OUTPUT_SUMMARIES_FILE}...")
+    with open(OUTPUT_SUMMARIES_FILE, 'w', encoding='utf-8') as f:
+        json.dump(final_summaries, f, indent=4, ensure_ascii=False)
+
+    print("Phase 3 Complete.")
+
+if __name__ == "__main__":
+    main()
