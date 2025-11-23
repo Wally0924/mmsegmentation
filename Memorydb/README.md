@@ -1,114 +1,131 @@
-# 🗺️ VLM-First 場景先驗記憶庫 - 完整建置說明文件
+# 🗺️ 場景先驗記憶庫 (Scene Prior Memory Bank)
 
-[toc]
 
-## 1. 🚀 架構總覽 (Architecture Overview)
+## 1. 專案簡介與核心架構
 
-本記憶庫採用「**VLM 作為教師 (VLM-as-Teacher)**」的非對稱架構。
+本專案旨在建置一個**高強健性、語意驅動**的場景記憶庫。為了解決傳統影像分群容易受光影、天氣（白天/夜晚/雨天）影響的問題，我們採用了 **"VLM-Memory"** 架構。
 
-> **核心理念：**
-> 我們利用 **VLM (LLaVA)** 和 **S-BERT** 的強大語意理解能力，作為離線的「**教師**」，來克服單純影像特徵在光影、天氣變化下的分群錯誤問題。
->
-> 同時，我們利用 **DINOv2** 強健的影像特徵作為「**學生**」，用於構建最終的**快速查詢索引 (Key)**，確保系統在上線時能達到毫秒級的即時回應。
+### 核心設計概念
 
----
+:::info
+利用 **LLaVA-NeXT (VLM)** 與 **S-BERT** 理解場景的「結構語意」（如：這是 T字路口、有 7-11），強迫模型忽略光影變化。這提供了高品質的分群指導信號。
+利用 **DINOv2** 提取純影像特徵。在教師完成分群後，學生僅記憶每個群組的「純影像平均中心點」作為索引 Key。
+:::
 
-## 2. 🤖 核心模型與工具
+### 流程圖
 
-1.  **DINOv2** (`facebook/dinov2-base`):
-    * **用途:** 提取穩健的純影像特徵，作為即時查詢的基礎。
-2.  **LLaVA-NeXT** (`llava-hf/llava-v1.6-mistral-7b-hf`):
-    * **用途:** 產生不受天氣影響的語意摘要 JSON，提供分群所需的智能。
-3.  **Sentence-BERT** (`all-mpnet-base-v2`):
-    * **用途:** 將語意摘要轉換為數學向量。
-4.  **K-Means** (`scikit-learn`):
-    * **用途:** 在高維混合特徵空間中進行精準分群。
-5.  **ChromaDB**:
-    * **用途:** 向量資料庫，儲存最終成果。
+```mermaid
+graph TD
+    Img[原始影像] --> |01. Extract| Dino[DINOv2 影像特徵]
+    Img --> |01a. Caption| JSON[LLaVA 語意摘要]
+    JSON --> |01b. Encode| SBERT[S-BERT 文字特徵]
+    
+    Dino --> |權重 W_img| Fusion[01c. 加權特徵融合]
+    SBERT --> |權重 W_txt| Fusion
+    
+    Fusion --> |02. Clustering| Labels[分群標籤 Cluster IDs]
+    
+    Labels & Dino --> |02b. Calculate Key| Key[純影像中心點 Key]
+    Labels & JSON --> |03. Calculate Value| Value[機率語意 Value]
+    
+    Key & Value --> |04. Build DB| Chroma[ChromaDB 向量資料庫]
+```
 
----
+## 2. 完整執行流程 (Pipeline)
 
-## 3. 🛠️ 建置步驟詳解
+請依照以下順序執行腳本。確保您處於已安裝好環境的 `memory_factory` Conda 環境中。
 
-請依序執行以下所有腳本。確保您處於已安裝好環境的 `memory_factory` Conda 環境中。
+### 步驟 1：特徵提取 (Feature Extraction)
 
-### 階段 1a：提取「快學生」影像特徵 (DINOv2)
+此階段將影像轉換為數學向量與語意文本。
 
-* **執行腳本：** `01_extract_feature.py`
-* **作法：** 使用 DINOv2 模型對所有影像提取特徵，並進行 L2 標準化。
-* **產出：** `all_image_features.npy` (768 維)
-* **關鍵參數：**
-    * `MODEL_ID = "facebook/dinov2-base"`
+1.  **提取影像特徵 (Student)**
+    * 執行：`python 01_extract_feature.py`
+    * 產出：`all_image_features.npy` (DINOv2, 768-d)
+2.  **生成語意摘要 (Teacher Part 1)**
+    * 執行：`python 01a_llm_semantic.py`
+    * 說明：LLaVA 會遍歷所有影像，忽略移動物體與天氣，生成 JSON 結構化描述。
+    * 產出：`llava_summaries.json`
+3.  **提取文字向量 (Teacher Part 2)**
+    * 執行：`python 01b_text_vector.py`
+    * 說明：將 JSON 轉為字串並透過 S-BERT 編碼。
+    * 產出：`all_text_features.npy` (S-BERT, 768-d)
 
-### 階段 1b：提取「慢老師」語意摘要 (LLaVA)
+### 步驟 2：特徵融合與參數優化 (Optimization & Fusion)
 
-* **執行腳本：** `01a_llm_semantic.py`
-* **作法：** 強迫 LLaVA 忽略天氣與光影，為每一張影像生成一份結構化的 JSON 摘要。
-* **產出：** `llava_summaries.json` (387 份 JSON 字串)
-* **關鍵參數：**
-    * `ENGLISH_JSON_PROMPT`: 包含 `road_layout`, `ocr_text_on_signs` 等欄位的嚴格 Prompt。
-    * `BATCH_SIZE`: 根據顯卡記憶體調整 (例如 8)。
+此階段決定如何結合影像與文字特徵以達到最佳分群效果。
 
-### 階段 1c：提取「慢老師」語意向量 (S-BERT)
+4.  **尋找最佳融合權重 (Optional)**
+    * 執行：`python 02_evaluate_weights.py` (請參考補充腳本)
+    * 說明：透過 Grid Search 找出最佳的 `IMAGE_WEIGHT` 與 `TEXT_WEIGHT` 組合。
+5.  **執行加權融合**
+    * 執行：`python 01c_merge_feature.py`
+    * 設定：請在腳本內修改 `IMAGE_WEIGHT` 與 `TEXT_WEIGHT` (推薦：Img 0.6 / Txt 0.4)。
+    * 產出：`all_joint_features.npy` (Concatenated, 1536-d)
+6.  **尋找最佳 K 值 (Optional)**
+    * 執行：`python find_best_k.py` (請參考補充腳本)
+    * 說明：使用 Silhouette Score 評估不同 K 值 (群組數) 的品質。
 
-* **執行腳本：** `01b_text_vector.py`
-* **作法：** 將 JSON 摘要轉換為標準化字串，並使用 S-BERT 編碼為文字向量，最後進行 L2 標準化。
-* **產出：** `all_text_features.npy` (768 維)
+### 步驟 3：分群與後處理 (Clustering & Post-processing)
 
-### 階段 1d：特徵融合 (Teacher Feature)
+此階段是系統的核心，決定了記憶庫的結構。
 
-* **執行腳本：** `01c_merge_feature.py`
-* **作法：** 將 DINOv2 影像向量與 S-BERT 文字向量拼接。
-* **產出：** `all_joint_features.npy` (1536 維)
+7.  **執行 VLM 指導分群**
+    * 執行：`python 02_run_clustering.py`
+    * 邏輯：
+        * 使用 **融合特徵** 進行 K-Means 初始化。
+        * 計算 Cosine Similarity 矩陣。
+        * 若相似度 > `MERGE_THRESHOLD` (如 0.92)，自動合併相似群組。
+    * 產出：`cluster_labels.npy` (最終的分群標籤)
 
-### 階段 2：VLM 指導分群 (Clustering)
+8.  **計算純影像中心點 (Key Generation)**
+    * 執行：`python 02b_calculate_means.py`
+    * **關鍵步驟：** 這裡拋棄了融合特徵，改用 `cluster_labels` 對應回 `all_image_features.npy` (DINOv2) 計算平均值。
+    * 目的：確保上線時，只需影像特徵即可查詢，不需 VLM 介入。
+    * 產出：`image_only_cluster_centers.npy` (Fast Keys)
 
-* **執行腳本：** `02_run_clustering.py`
-* **作法：** 在 1536 維的混合特徵空間上執行 K-Means，產生最準確的分群結果（標準答案）。
-* **產出：**
-    * `cluster_labels.npy`: 每張影像的群組 ID (0-35)。
-    * `cluster_centers.npy`: **(注意)** 這裡產生的是 1536 維中心點，我們在下一階段會替換它。
-* **關鍵參數：**
-    * `INPUT_FEATURES_FILE = "all_joint_features.npy"`
-    * `K_CLUSTERS`: 設定群組數量 (例如 36)。
+9.  **計算語意機率 (Value Generation)**
+    * 執行：`python 03_calculate_probabilities.py`
+    * 說明：統計同一群組內所有 LLaVA JSON 的特徵頻率，轉化為機率分佈 (e.g., {"T-junction": 0.9, "Crossroad": 0.1})。
+    * 產出：`semantic_summaries.json` (Probabilistic Values)
 
-### 階段 3a：計算快速查詢 Key (New)
+### 步驟 4：資料庫建置與驗證 (Database & Verification)
 
-* **執行腳本：** `02c_calculate_image_centers.py` (需新建)
-* **作法：** 讀取 `cluster_labels.npy` (老師的答案) 和 `all_image_features.npy` (學生的特徵)，計算每個群組的**影像向量平均值**。
-* **產出：** `image_only_cluster_centers.npy` (768 維，這將是最終的 **Key**)。
+10. **建置 ChromaDB**
+    * 執行：`python 04_build_memory_db.py`
+    * 說明：將 Key (純影像中心) 與 Value (機率語意) 寫入向量資料庫。
+    * 產出：`memory_db_chroma/` 資料夾
 
-### 階段 3b：計算機率型 Value (Probability)
+11. **視覺化驗證結果**
+    * 執行：`python 05_visualize_clusters.py`
+    * 說明：將影像複製到 `all_clusters_visualization/` 下的分類資料夾中。
+    * **檢查重點：** 打開資料夾，確認同一群組內是否**混和了不同天氣/光影但相同地點**的影像。
 
-* **執行腳本：** `03_calculate_probabilities.py`
-* **作法：** 統計每個群組中，LLaVA JSON 各個特徵出現的頻率，轉換為機率。
-* **產出：** `semantic_summaries.json` (機率型 JSON，這將是最終的 **Value**)。
 
-### 階段 4：建置最終記憶庫 (Database)
+## 4. 腳本詳細參數說明
 
-* **執行腳本：** `04_build_memory_db.py`
-* **作法：** 將 Key 和 Value 存入 ChromaDB。
-* **關鍵修改：**
-    * `INPUT_CENTERS_FILE`: 指向 `image_only_cluster_centers.npy` (768 維)。
-    * `INPUT_SUMMARIES_FILE`: 指向 `semantic_summaries.json`。
-* **產出：** `memory_db_chroma/` 資料夾。
+### `01c_merge_feature.py`
+:::warning
+請確保影像與文字維度一致 (本專案預設皆為 768)，並在此設定權重。
+:::
 
----
+```python
+# 權重設定 (建議根據 02_evaluate_weights.py 的結果調整)
+IMAGE_WEIGHT = 0.6 
+TEXT_WEIGHT = 0.4
+# 模式：Concatenate (拼接)
+```
 
-## 4. 🔬 驗證流程 (Verification)
+### `02_run_clustering.py`
+```python
+# 初始 K 值 (建議設稍大，讓演算法有空間合併)
+INITIAL_K = 36 
+# 合併門檻 (越高代表越嚴格，越不像就不合併)
+MERGE_THRESHOLD = 0.92
+```
 
-建置完成後，請執行以下驗證。
-
-### A. 視覺化驗證
-
-* **執行腳本：** `05_visualize_clusters.py`
-* **方法：** 檢查 `all_clusters_visualization/` 資料夾。確認同一群組內是否**同時包含**了白天、夜晚、晴天、雨天的影像。如果是，代表 VLM 指導分群成功。
-
-### B. 線上查詢模擬
-
-* **執行腳本：** (自訂測試腳本)
-* **方法：**
-    1. 讀取一張新的測試圖片。
-    2. 執行 `01_extract_feature.py` 中的 DINOv2 邏輯產生 768 維向量。
-    3. 用該向量查詢 `memory_db_chroma`。
-    4. 確認回傳的 Value (機率 JSON) 是否準確描述了該場景。
+### `03_calculate_probabilities.py`
+```python
+# 機率門檻 (只保留出現機率高於此值的特徵)
+PROBABILITY_THRESHOLD = 0.5
+```
