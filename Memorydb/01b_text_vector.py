@@ -59,27 +59,32 @@ for filename in filenames_list:
 
         # 根據你的 schema 組成固定順序的字串
         parts = []
-        # 將新的欄位組合成語意字串
-        # 加權策略：把最具區別力的特徵放在前面
         
-        # 1. 區域原型與建築風格 (最強特徵)
-        parts.append(f"zone={data.get('zone_archetype', 'N/A')}")
-        parts.append(f"style={data.get('architectural_style', 'N/A')}")
+        # 1. 放入完整的敘述 (這對 S-BERT 分群效果最好)
+        # Narrative 提供了空間關係和整體氛圍，這對區分 "博物館前" 和 "工業區" 至關重要
+        narrative = data.get('scene_narrative', '')
+        if narrative:
+            parts.append(narrative)
+            
+        # 2. 補充物件清單 (增強關鍵字權重)
+        # 我們把清單扁平化加入，加強 S-BERT 對特定物件的敏感度
+        inventory = data.get('visual_inventory', {})
+        all_objects = []
         
-        # 2. 獨特地標 (例如天橋、博物館柱子)
-        parts.append(f"landmark={data.get('distinctive_structure', 'N/A')}")
+        # 將所有子類別的物件合併
+        for category in ["structures", "road_components", "street_furniture", "nature"]:
+            items = inventory.get(category, [])
+            if items:
+                all_objects.extend(items)
         
-        # 3. 視野與植被 (區分度假區 vs 市中心)
-        parts.append(f"sky={data.get('sky_visibility', 'N/A')}")
-        parts.append(f"veg={data.get('vegetation_signature', 'N/A')}")
-        
-        # 4. 基礎結構
-        parts.append(f"layout={data.get('road_layout', 'N/A')}")
-        parts.append(f"left={data.get('left_side_building', 'N/A')}")
-        parts.append(f"right={data.get('right_side_building', 'N/A')}")
-        parts.append("markings=" + "|".join(data.get("road_markings", [])))
+        if all_objects:
+            # 格式: "Objects: museum_building, stone_column..."
+            # 這能確保如果 narrative 漏寫了某個小東西，這裡能補上
+            parts.append("Objects: " + ", ".join(all_objects))
 
-        canonical_str = "; ".join(parts)
+        # 最終字串範例:
+        # "The scene depicts... Objects: museum_building, stone_column..."
+        canonical_str = " ".join(parts) 
         json_strings_to_encode.append(canonical_str)
     else:
         print(f"WARNING: Filename {filename} not found in summaries dict! Appending empty string.")
@@ -98,6 +103,7 @@ all_text_features_np = model.encode(
 )
 
 # L2 normalize 文字向量
+# 這對後續的 Cosine Similarity 計算很重要
 norms = np.linalg.norm(all_text_features_np, axis=1, keepdims=True)
 all_text_features_np = all_text_features_np / np.clip(norms, 1e-12, None)
 

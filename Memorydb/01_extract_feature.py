@@ -67,6 +67,8 @@ with torch.no_grad():
         
         # 2. 獲取特徵 (DINOv2)
         image_features = model(**inputs).last_hidden_state.mean(dim=1)
+        # L2 正規化
+        # 對後面的相似度計算很重要
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         
         # 3. 儲存特徵

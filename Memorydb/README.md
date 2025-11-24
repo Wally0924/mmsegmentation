@@ -17,7 +17,7 @@
 ```mermaid
 graph TD
     Img[原始影像] --> |01. Extract| Dino[DINOv2 影像特徵]
-    Img --> |01a. Caption| JSON[LLaVA 語意摘要]
+    Img --> |01a. Caption| JSON[LLaVA 敘述 + 物件清單]
     JSON --> |01b. Encode| SBERT[S-BERT 文字特徵]
     
     Dino --> |權重 W_img| Fusion[01c. 加權特徵融合]
@@ -26,7 +26,7 @@ graph TD
     Fusion --> |02. Clustering| Labels[分群標籤 Cluster IDs]
     
     Labels & Dino --> |02b. Calculate Key| Key[純影像中心點 Key]
-    Labels & JSON --> |03. Calculate Value| Value[機率語意 Value]
+    Labels & JSON --> |03. Calculate Value| Value[物件機率表 Value]
     
     Key & Value --> |04. Build DB| Chroma[ChromaDB 向量資料庫]
 ```
@@ -42,11 +42,11 @@ graph TD
 1.  **提取影像特徵 (Student)**
     * 執行：`python 01_extract_feature.py`
     * 產出：`all_image_features.npy` (DINOv2, 768-d)
-2.  **生成語意摘要 (Teacher Part 1)**
+2.  **生成語意摘要 (Part 1)**
     * 執行：`python 01a_llm_semantic.py`
-    * 說明：LLaVA 會遍歷所有影像，忽略移動物體與天氣，生成 JSON 結構化描述。
+    * 說明：LLaVA 生成包含 `scene_narrative` (敘述) 與 `visual_inventory` (物件清單) 的 JSON。
     * 產出：`llava_summaries.json`
-3.  **提取文字向量 (Teacher Part 2)**
+3.  **提取文字向量 (Part 2)**
     * 執行：`python 01b_text_vector.py`
     * 說明：將 JSON 轉為字串並透過 S-BERT 編碼。
     * 產出：`all_text_features.npy` (S-BERT, 768-d)
@@ -55,14 +55,11 @@ graph TD
 
 此階段決定如何結合影像與文字特徵以達到最佳分群效果。
 
-4.  **尋找最佳融合權重 (Optional)**
-    * 執行：`python evaluate_para.py` (請參考補充腳本)
-    * 說明：透過 Grid Search 找出最佳的 `IMAGE_WEIGHT` 與 `TEXT_WEIGHT` 組合。
-5.  **執行加權融合**
+4.  **執行加權融合**
     * 執行：`python 01c_merge_feature.py`
     * 設定：請在腳本內修改 `IMAGE_WEIGHT` 與 `TEXT_WEIGHT` (推薦：Img 0.6 / Txt 0.4)。
     * 產出：`all_joint_features.npy` (Concatenated, 1536-d)
-6.  **尋找最佳 K 值 (Optional)**
+5.  **尋找最佳 K 值 (Optional)**
     * 執行：`python find_best_k.py` (請參考補充腳本)
     * 說明：使用 Silhouette Score 評估不同 K 值 (群組數) 的品質。
 
@@ -70,33 +67,33 @@ graph TD
 
 此階段是系統的核心，決定了記憶庫的結構。
 
-7.  **執行 VLM 指導分群**
+6.  **執行 VLM 指導分群**
     * 執行：`python 02_run_clustering.py`
     * 邏輯：
         * 使用 **融合特徵** 進行 K-Means 初始化。
         * 計算 Cosine Similarity 矩陣。
-        * 若相似度 > `MERGE_THRESHOLD` (如 0.92)，自動合併相似群組。
+        * 若相似度 > `MERGE_THRESHOLD` (如 0.93)，自動合併相似群組。
     * 產出：`cluster_labels.npy` (最終的分群標籤)
 
-8.  **計算純影像中心點 (Key Generation)**
+7.  **計算純影像中心點 (Key Generation)**
     * 執行：`python 02b_calculate_means.py`
     * **關鍵步驟：** 這裡拋棄了融合特徵，改用 `cluster_labels` 對應回 `all_image_features.npy` (DINOv2) 計算平均值。
     * 目的：確保上線時，只需影像特徵即可查詢，不需 VLM 介入。
     * 產出：`image_only_cluster_centers.npy` (Fast Keys)
 
-9.  **計算語意機率 (Value Generation)**
+8.  **計算語意機率 (Value Generation)**
     * 執行：`python 03_calculate_probabilities.py`
-    * 說明：統計同一群組內所有 LLaVA JSON 的特徵頻率，轉化為機率分佈 (e.g., {"T-junction": 0.9, "Crossroad": 0.1})。
+    * 說明：統計群組內 `visual_inventory` 出現的物件頻率。
     * 產出：`semantic_summaries.json` (Probabilistic Values)
 
 ### 步驟 4：資料庫建置與驗證 (Database & Verification)
 
-10. **建置 ChromaDB**
+9. **建置 ChromaDB**
     * 執行：`python 04_build_memory_db.py`
     * 說明：將 Key (純影像中心) 與 Value (機率語意) 寫入向量資料庫。
     * 產出：`memory_db_chroma/` 資料夾
 
-11. **視覺化驗證結果**
+10. **視覺化驗證結果**
     * 執行：`python 05_visualize_clusters.py`
     * 說明：將影像複製到 `all_clusters_visualization/` 下的分類資料夾中。
     * **檢查重點：** 打開資料夾，確認同一群組內是否**混和了不同天氣/光影但相同地點**的影像。
@@ -111,33 +108,39 @@ graph TD
 
 ```python
 # 權重設定 (目前設定)
-`IMAGE_WEIGHT` = 0.55
-`TEXT_WEIGHT` = 0.45
-# 模式：Concatenate (拼接)
+`IMAGE_WEIGHT` = 0.6
+`TEXT_WEIGHT` = 0.4
 ```
 
 ### `02_run_clustering.py`
 ```python
 # 初始 K 值 (建議設稍大，讓演算法有空間合併)
-`INITIAL_K` = 46 
+`INITIAL_K` = 7
 # 合併門檻 (越高代表越嚴格，越不像就不合併)
-`MERGE_THRESHOLD` = 0.93
+`MERGE_THRESHOLD` = 0.90
 ```
 
 ### `03_calculate_probabilities.py`
-此腳本負責將 VLM 的文字描述轉化為機率分佈。為了避免過度過濾導致關鍵資訊遺失，我們引入了「強制保留」機制。
+此腳本負責生成語意分割所需的 Prior 機率。
 
 ```python
-# 機率門檻 (只保留出現機率高於此值的特徵)
-PROBABILITY_THRESHOLD = 0.5
-
-# [關鍵設定] 強制保留名單 (Top-1 Fallback)
-# 對於描述性強、變異度高的欄位 (如地標描述)，很難有 50% 的影像完全一致。
-# 為了避免這些欄位被清空，我們強制保留該群組中「出現最多次」的 1 個描述，
-# 即使它的機率低於門檻 (例如只有 0.3)。
-FORCE_KEEP_TOP_1_FIELDS = [
-    "primary_landmark", 
-    "distinctive_features", 
-    "surrounding_structure"
-]
+# 機率門檻
+PROBABILITY_THRESHOLD = 0.4
 ```
+
+## 5. 技術附錄：數學原理 (Technical Notes)
+
+### Q: 為什麼特徵融合後 (01c) 不需要再次 L2 正規化就可以做 K-Means？
+
+我們在 `01c` 採用的融合方式是加權拼接 (Weighted Concatenation)：
+$$V_{joint} = [w_{img} \cdot V_{img}, \quad w_{txt} \cdot V_{txt}]$$
+
+由於原始輸入 $V_{img}$ 和 $V_{txt}$ 都已經是單位向量（長度為 1），且權重 $w_{img}$ 和 $w_{txt}$ 是固定的常數，因此融合後的向量長度 (Norm) 恆定為：
+$$\|V_{joint}\| = \sqrt{w_{img}^2 + w_{txt}^2}$$
+
+**幾何意義：**
+當所有資料點都分佈在同一個半徑的超球面上時，**「最小化歐式距離 (K-Means)」在數學上等價於「最大化餘弦相似度 (Cosine Similarity)」**。因此，我們不需要在分群前進行額外的 L2 正規化，即可達到語意分群的效果。
+
+### Q: 為什麼計算 Key (02b) 時需要 L2 正規化？
+
+在計算群組中心點 (Mean Pooling) 後，向量長度會因為方向抵消而變短。為了確保 ChromaDB 在檢索時能正確計算 Cosine Similarity，我們必須將計算出的平均向量重新投影回單位超球面上 (L2 Normalize)。

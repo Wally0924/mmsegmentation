@@ -18,70 +18,123 @@ OUTPUT_SUMMARIES_FILE = "llava_summaries.json"  # 新的 VLM 摘要輸出
 # LLaVA-NeXT VLM
 MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
 
+# ENGLISH_JSON_PROMPT = '''
+# You are a specialized scene analysis AI for a synthetic virtual city.
+# Your task is to identify the unique "Zone Fingerprint" of this location based on architectural style and layout.
+
+# [STRICT RULES]
+# 1. IGNORE all moving objects (cars, pedestrians). 
+# 2. IGNORE lighting/weather/time. Focus on the permanent "texture" of the city.
+# 3. DO NOT READ TEXT. Ignore all signboards and banners. Focus on the structure holding them.
+# 4. OUTPUT FORMAT: Single JSON object only.
+
+# [JSON SKELETON]
+# {
+#   "zone_archetype": "...",
+#   "architectural_style": "...",
+#   "road_layout": "...",
+#   "sky_visibility": "...",
+#   "distinctive_structure": "...",
+#   "left_side_building": "...",
+#   "right_side_building": "...",
+#   "vegetation_signature": "...",
+#   "road_markings": []
+# }
+
+# [FIELD GUIDELINES]
+
+# - "zone_archetype":
+#   Classify the general vibe of this area:
+#   ["industrial_district", "classical_cultural_center", "resort_boulevard", 
+#    "dense_downtown_canyon", "residential_suburb", "construction_zone", "highway_overpass_area"]
+
+# - "architectural_style":
+#   The dominant material and design style:
+#   ["red_brick_industrial", "beaux_arts_stone_classical", "modern_glass_curtain", 
+#    "beige_stucco_resort", "mixed_urban_facades", "concrete_brutalist"]
+
+# - "road_layout":
+#   ["crossroad", "t_junction", "straight_avenue", "curved_boulevard", 
+#    "narrow_alley", "wide_intersection_with_island"]
+
+# - "sky_visibility":
+#   How much sky is visible? This distinguishes downtown canyons from open resorts.
+#   ["narrow_strip_visible", "open_sky_wide", "blocked_by_overhead_structure", "partially_obstructed_by_trees"]
+
+# - "distinctive_structure":
+#   Look for ONE unique identifier that separates this place from others:
+#   ["pedestrian_skybridge_connecting_buildings", "monumental_columned_portico", 
+#    "grand_stone_staircase", "dense_cluster_of_skyscrapers", "balcony_lined_apartments", 
+#    "large_billboard_frame", "N/A"]
+
+# - "left_side_building" & "right_side_building":
+#   Describe the immediate buildings:
+#   ["factory_warehouse_brick", "classical_museum_wing", "glass_skyscraper", 
+#    "stucco_hotel_complex", "parking_garage", "low_rise_shops", "construction_site"]
+
+# - "vegetation_signature":
+#   The type of trees is a key location marker in this city:
+#   ["palm_tree_rows", "large_canopy_deciduous_trees", "sparse_street_saplings", 
+#    "dense_tropical_bushes", "no_vegetation"]
+
+# - "road_markings":
+#   ["crosswalk_ladder_style", "double_yellow_lines", "white_lane_dividers", 
+#    "hatched_junction_box", "stop_line", "none"]
+
+# Remember: Output valid JSON only. Use the exact tokens provided above where possible.
+# '''
+
 ENGLISH_JSON_PROMPT = '''
-You are a specialized scene analysis AI for a synthetic virtual city.
-Your task is to identify the unique "Zone Fingerprint" of this location based on architectural style and layout.
+You are a highly detailed visual perception AI.
+Your task is to analyze the PERMANENT structural features of this virtual city image and provide output in two specific parts: a descriptive narrative and a precise object inventory.
 
 [STRICT RULES]
-1. IGNORE all moving objects (cars, pedestrians). 
-2. IGNORE lighting/weather/time. Focus on the permanent "texture" of the city.
-3. DO NOT READ TEXT. Ignore all signboards and banners. Focus on the structure holding them.
-4. OUTPUT FORMAT: Single JSON object only.
+1. IGNORE moving objects (cars, pedestrians). Treat the scene as static.
+2. IGNORE transient lighting, weather, and time of day. Focus on the "true color" (albedo) and permanent structure.
+3. NO OCR. Focus on the physical objects (e.g., "rectangular banner"), not the text on them.
+4. OUTPUT FORMAT: Single JSON object.
 
 [JSON SKELETON]
 {
-  "zone_archetype": "...",
-  "architectural_style": "...",
-  "road_layout": "...",
-  "sky_visibility": "...",
-  "distinctive_structure": "...",
-  "left_side_building": "...",
-  "right_side_building": "...",
-  "vegetation_signature": "...",
-  "road_markings": []
+  "scene_narrative": "...",
+  "visual_inventory": {
+    "structures": [],
+    "road_components": [],
+    "street_furniture": [],
+    "nature": []
+  }
 }
 
-[FIELD GUIDELINES]
+[INSTRUCTIONS]
 
-- "zone_archetype":
-  Classify the general vibe of this area:
-  ["industrial_district", "classical_cultural_center", "resort_boulevard", 
-   "dense_downtown_canyon", "residential_suburb", "construction_zone", "highway_overpass_area"]
+1. "scene_narrative" (For Scene Clustering):
+   Write a comprehensive, natural language paragraph (3-5 sentences) describing the scene.
+   - Focus on PERMANENT features. Do not describe shadows, puddles, or sun glare.
+   - Start with the global layout (e.g., "This is a T-junction facing a grand classical museum...").
+   - Describe the spatial relationship of major structures (e.g., "On the left is a tree, to the right is a brick building...").
+   - Mention the architectural style and atmosphere.
+   - Example: "The scene depicts a wide T-intersection paved with asphalt. Dominating the view is a massive beige stone museum with classical columns and a grand staircase. To the left, large deciduous trees line the sidewalk. The road features prominent white ladder-style crosswalks."
 
-- "architectural_style":
-  The dominant material and design style:
-  ["red_brick_industrial", "beaux_arts_stone_classical", "modern_glass_curtain", 
-   "beige_stucco_resort", "mixed_urban_facades", "concrete_brutalist"]
+2. "visual_inventory" (For Semantic Segmentation):
+   List specific, physical objects visible in the image. Be EXHAUSTIVE.
+   
+   - "structures": Large fixed objects and building parts.
+     (e.g., ["museum_building", "stone_column", "grand_staircase", "brick_wall", "glass_facade", 
+            "skybridge", "warehouse", "balcony", "construction_scaffolding", "portico"])
+     
+   - "road_components": Drivable surfaces and markings.
+     (e.g., ["asphalt_road", "concrete_sidewalk", "white_crosswalk", "double_yellow_line", 
+            "stop_line", "bike_lane_marking", "paved_tiles", "curb_stone"])
+     
+   - "street_furniture": Small fixed objects on the sidewalk.
+     (e.g., ["traffic_light_vertical", "traffic_light_horizontal", "street_lamp", "banner_pole", 
+            "vertical_banner", "trash_can", "fire_hydrant", "bench", "bus_stop_shelter", "bollard"])
+     
+   - "nature": Vegetation and sky elements.
+     (e.g., ["deciduous_tree_leafy", "deciduous_tree_bare", "palm_tree", "bush", 
+            "grass_patch", "potted_plant", "open_sky"])
 
-- "road_layout":
-  ["crossroad", "t_junction", "straight_avenue", "curved_boulevard", 
-   "narrow_alley", "wide_intersection_with_island"]
-
-- "sky_visibility":
-  How much sky is visible? This distinguishes downtown canyons from open resorts.
-  ["narrow_strip_visible", "open_sky_wide", "blocked_by_overhead_structure", "partially_obstructed_by_trees"]
-
-- "distinctive_structure":
-  Look for ONE unique identifier that separates this place from others:
-  ["pedestrian_skybridge_connecting_buildings", "monumental_columned_portico", 
-   "grand_stone_staircase", "dense_cluster_of_skyscrapers", "balcony_lined_apartments", 
-   "large_billboard_frame", "N/A"]
-
-- "left_side_building" & "right_side_building":
-  Describe the immediate buildings:
-  ["factory_warehouse_brick", "classical_museum_wing", "glass_skyscraper", 
-   "stucco_hotel_complex", "parking_garage", "low_rise_shops", "construction_site"]
-
-- "vegetation_signature":
-  The type of trees is a key location marker in this city:
-  ["palm_tree_rows", "large_canopy_deciduous_trees", "sparse_street_saplings", 
-   "dense_tropical_bushes", "no_vegetation"]
-
-- "road_markings":
-  ["crosswalk_ladder_style", "double_yellow_lines", "white_lane_dividers", 
-   "hatched_junction_box", "stop_line", "none"]
-
-Remember: Output valid JSON only. Use the exact tokens provided above where possible.
+Remember: The narrative helps understand the "Whole", the inventory identifies the "Parts" for segmentation.
 '''
 
 # --- 2. Setup Device ---
