@@ -136,7 +136,6 @@ Your task is to analyze the PERMANENT structural features of this virtual city i
 
 Remember: The narrative helps understand the "Whole", the inventory identifies the "Parts" for segmentation.
 '''
-
 # --- 2. Setup Device ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 if DEVICE == "cpu":
@@ -221,7 +220,7 @@ with torch.no_grad():
         ).to(DEVICE)
 
         # 5.4 LLaVA 執行「批次推論」
-        outputs = model.generate(**inputs, max_new_tokens=256)
+        outputs = model.generate(**inputs, max_new_tokens=1024)
         
         # 5.5 批次解碼
         # 使用 batch_decode 來一次解碼所有 N 個輸出
