@@ -124,5 +124,6 @@ mmseg/.mim
 *.png
 *.npy
 *.json
+*.mp4
 
 Memorydb/memory_db_chroma/

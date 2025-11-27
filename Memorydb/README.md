@@ -109,16 +109,16 @@ graph TD
 
 ```python
 # 權重設定 (目前設定)
-IMAGE_WEIGHT = 0.6
-TEXT_WEIGHT = 0.4
+IMAGE_WEIGHT = 0.65
+TEXT_WEIGHT = 0.35
 ```
 
 ### `02_run_clustering.py`
 ```python
 # 初始 K 值 (建議設稍大，讓演算法有空間合併)
-INITIAL_K = 7
+INITIAL_K = 15
 # 合併門檻 (越高代表越嚴格，越不像就不合併)
-MERGE_THRESHOLD = 0.90
+MERGE_THRESHOLD = 0.92
 ```
 
 ### `03_calculate_probabilities.py`
