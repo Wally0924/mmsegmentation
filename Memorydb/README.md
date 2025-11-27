@@ -45,6 +45,7 @@ graph TD
 2.  **生成語意摘要 (Part 1)**
     * 執行：`python 01a_llm_semantic.py`
     * 說明：LLaVA 生成包含 `scene_narrative` (敘述) 與 `visual_inventory` (物件清單) 的 JSON。
+    * 關鍵機制：包含詞彙表分離 (Reference Vocabulary) 與 Python 防呆邏輯，防止模型幻覺或複製貼上。
     * 產出：`llava_summaries.json`
 3.  **提取文字向量 (Part 2)**
     * 執行：`python 01b_text_vector.py`

@@ -7,7 +7,7 @@ import json
 from tqdm import tqdm
 import warnings
 import math
-
+import re
 # --- 1. Settings ---
 BATCH_SIZE = 8 
 
@@ -19,80 +19,90 @@ OUTPUT_SUMMARIES_FILE = "llava_summaries.json"  # 新的 VLM 摘要輸出
 MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
 
 # ENGLISH_JSON_PROMPT = '''
-# You are a specialized scene analysis AI for a synthetic virtual city.
-# Your task is to identify the unique "Zone Fingerprint" of this location based on architectural style and layout.
+# You are a highly detailed visual perception AI.
+# Your task is to analyze the PERMANENT structural features of this virtual city image and provide output in two specific parts: a descriptive narrative and a precise object inventory.
 
 # [STRICT RULES]
-# 1. IGNORE all moving objects (cars, pedestrians). 
-# 2. IGNORE lighting/weather/time. Focus on the permanent "texture" of the city.
-# 3. DO NOT READ TEXT. Ignore all signboards and banners. Focus on the structure holding them.
-# 4. OUTPUT FORMAT: Single JSON object only.
+# 1. IGNORE moving objects (cars, pedestrians). Treat the scene as static.
+# 2. IGNORE transient lighting, weather, and time of day. Focus on the "true color" (albedo) and permanent structure.
+# 3. NO OCR. Focus on the physical objects (e.g., "rectangular banner"), not the text on them.
+# 4. OUTPUT FORMAT: Single JSON object.
 
 # [JSON SKELETON]
 # {
-#   "zone_archetype": "...",
-#   "architectural_style": "...",
-#   "road_layout": "...",
-#   "sky_visibility": "...",
-#   "distinctive_structure": "...",
-#   "left_side_building": "...",
-#   "right_side_building": "...",
-#   "vegetation_signature": "...",
-#   "road_markings": []
+#   "scene_narrative": "...",
+#   "visual_inventory": {
+#     "structures": [],
+#     "road_components": [],
+#     "street_furniture": [],
+#     "nature": []
+#   }
 # }
 
-# [FIELD GUIDELINES]
+# [INSTRUCTIONS]
 
-# - "zone_archetype":
-#   Classify the general vibe of this area:
-#   ["industrial_district", "classical_cultural_center", "resort_boulevard", 
-#    "dense_downtown_canyon", "residential_suburb", "construction_zone", "highway_overpass_area"]
+# 1. "scene_narrative" (For Scene Clustering):
+#    Write a comprehensive, natural language paragraph (3-5 sentences) describing the scene.
+#    - Focus on PERMANENT features. Do not describe shadows, puddles, or sun glare.
+#    - Start with the global layout (e.g., "This is a T-junction facing a grand classical museum...").
+#    - Describe the spatial relationship of major structures (e.g., "On the left is a tree, to the right is a brick building...").
+#    - Mention the architectural style and atmosphere.
+#    - Example: "The scene depicts a wide T-intersection paved with asphalt. Dominating the view is a massive beige stone museum with classical columns and a grand staircase. To the left, large deciduous trees line the sidewalk. The road features prominent white ladder-style crosswalks."
 
-# - "architectural_style":
-#   The dominant material and design style:
-#   ["red_brick_industrial", "beaux_arts_stone_classical", "modern_glass_curtain", 
-#    "beige_stucco_resort", "mixed_urban_facades", "concrete_brutalist"]
+# 2. "visual_inventory" (For Semantic Segmentation):
+#    List specific, physical objects visible in the image. Be EXHAUSTIVE.
+   
+#    - "structures": Large fixed objects and building parts.
+#      (e.g., ["museum_building", "stone_column", "grand_staircase", "brick_wall", "glass_facade", 
+#             "skybridge", "warehouse", "balcony", "construction_scaffolding", "portico"])
+     
+#    - "road_components": Drivable surfaces and markings.
+#      (e.g., ["asphalt_road", "concrete_sidewalk", "white_crosswalk", "double_yellow_line", 
+#             "stop_line", "bike_lane_marking", "paved_tiles", "curb_stone"])
+     
+#    - "street_furniture": Small fixed objects on the sidewalk.
+#      (e.g., ["traffic_light_vertical", "traffic_light_horizontal", "street_lamp", "banner_pole", 
+#             "vertical_banner", "trash_can", "fire_hydrant", "bench", "bus_stop_shelter", "bollard"])
+     
+#    - "nature": Vegetation and sky elements.
+#      (e.g., ["deciduous_tree_leafy", "deciduous_tree_bare", "palm_tree", "bush", 
+#             "grass_patch", "potted_plant", "open_sky"])
 
-# - "road_layout":
-#   ["crossroad", "t_junction", "straight_avenue", "curved_boulevard", 
-#    "narrow_alley", "wide_intersection_with_island"]
-
-# - "sky_visibility":
-#   How much sky is visible? This distinguishes downtown canyons from open resorts.
-#   ["narrow_strip_visible", "open_sky_wide", "blocked_by_overhead_structure", "partially_obstructed_by_trees"]
-
-# - "distinctive_structure":
-#   Look for ONE unique identifier that separates this place from others:
-#   ["pedestrian_skybridge_connecting_buildings", "monumental_columned_portico", 
-#    "grand_stone_staircase", "dense_cluster_of_skyscrapers", "balcony_lined_apartments", 
-#    "large_billboard_frame", "N/A"]
-
-# - "left_side_building" & "right_side_building":
-#   Describe the immediate buildings:
-#   ["factory_warehouse_brick", "classical_museum_wing", "glass_skyscraper", 
-#    "stucco_hotel_complex", "parking_garage", "low_rise_shops", "construction_site"]
-
-# - "vegetation_signature":
-#   The type of trees is a key location marker in this city:
-#   ["palm_tree_rows", "large_canopy_deciduous_trees", "sparse_street_saplings", 
-#    "dense_tropical_bushes", "no_vegetation"]
-
-# - "road_markings":
-#   ["crosswalk_ladder_style", "double_yellow_lines", "white_lane_dividers", 
-#    "hatched_junction_box", "stop_line", "none"]
-
-# Remember: Output valid JSON only. Use the exact tokens provided above where possible.
+# Remember: The narrative helps understand the "Whole", the inventory identifies the "Parts" for segmentation.
 # '''
 
 ENGLISH_JSON_PROMPT = '''
-You are a highly detailed visual perception AI.
-Your task is to analyze the PERMANENT structural features of this virtual city image and provide output in two specific parts: a descriptive narrative and a precise object inventory.
+You are a semantic segmentation assistant.
+Your goal is to list ONLY the objects visible in the image to help a segmentation model.
 
 [STRICT RULES]
-1. IGNORE moving objects (cars, pedestrians). Treat the scene as static.
-2. IGNORE transient lighting, weather, and time of day. Focus on the "true color" (albedo) and permanent structure.
-3. NO OCR. Focus on the physical objects (e.g., "rectangular banner"), not the text on them.
+1. IGNORE moving objects (cars, pedestrians).
+2. IGNORE weather/time effects.
+3. NO OCR.
 4. OUTPUT FORMAT: Single JSON object.
+
+[REFERENCE VOCABULARY - SELECT FROM HERE]
+(Do NOT copy the whole list. Pick only what you see.)
+
+* STRUCTURES:
+  [museum_building, stone_column, grand_staircase, brick_wall, glass_facade, skybridge, warehouse, balcony, construction_scaffolding, portico, red_awning, beige_stone_building]
+
+* ROAD_COMPONENTS:
+  [asphalt_road, concrete_sidewalk, white_crosswalk, double_yellow_line, stop_line, bike_lane_marking, paved_tiles, curb_stone]
+
+* STREET_FURNITURE:
+  [traffic_light_vertical, traffic_light_horizontal, street_lamp, banner_pole, vertical_banner, trash_can, fire_hydrant, bench, bus_stop_shelter, bollard]
+
+* NATURE:
+  [deciduous_tree_leafy, deciduous_tree_bare, palm_tree, bush, grass_patch, potted_plant, open_sky]
+
+[TASK]
+1. Analyze the image.
+2. Write a "scene_narrative" (3-5 sentences).
+3. Create a "visual_inventory" by selecting APPLICABLE items from the Reference Vocabulary.
+   - If you see a tree, select "deciduous_tree_leafy".
+   - If you DO NOT see a warehouse, DO NOT write "warehouse".
+   - It is better to return a short, accurate list than a long, wrong one.
 
 [JSON SKELETON]
 {
@@ -104,37 +114,6 @@ Your task is to analyze the PERMANENT structural features of this virtual city i
     "nature": []
   }
 }
-
-[INSTRUCTIONS]
-
-1. "scene_narrative" (For Scene Clustering):
-   Write a comprehensive, natural language paragraph (3-5 sentences) describing the scene.
-   - Focus on PERMANENT features. Do not describe shadows, puddles, or sun glare.
-   - Start with the global layout (e.g., "This is a T-junction facing a grand classical museum...").
-   - Describe the spatial relationship of major structures (e.g., "On the left is a tree, to the right is a brick building...").
-   - Mention the architectural style and atmosphere.
-   - Example: "The scene depicts a wide T-intersection paved with asphalt. Dominating the view is a massive beige stone museum with classical columns and a grand staircase. To the left, large deciduous trees line the sidewalk. The road features prominent white ladder-style crosswalks."
-
-2. "visual_inventory" (For Semantic Segmentation):
-   List specific, physical objects visible in the image. Be EXHAUSTIVE.
-   
-   - "structures": Large fixed objects and building parts.
-     (e.g., ["museum_building", "stone_column", "grand_staircase", "brick_wall", "glass_facade", 
-            "skybridge", "warehouse", "balcony", "construction_scaffolding", "portico"])
-     
-   - "road_components": Drivable surfaces and markings.
-     (e.g., ["asphalt_road", "concrete_sidewalk", "white_crosswalk", "double_yellow_line", 
-            "stop_line", "bike_lane_marking", "paved_tiles", "curb_stone"])
-     
-   - "street_furniture": Small fixed objects on the sidewalk.
-     (e.g., ["traffic_light_vertical", "traffic_light_horizontal", "street_lamp", "banner_pole", 
-            "vertical_banner", "trash_can", "fire_hydrant", "bench", "bus_stop_shelter", "bollard"])
-     
-   - "nature": Vegetation and sky elements.
-     (e.g., ["deciduous_tree_leafy", "deciduous_tree_bare", "palm_tree", "bush", 
-            "grass_patch", "potted_plant", "open_sky"])
-
-Remember: The narrative helps understand the "Whole", the inventory identifies the "Parts" for segmentation.
 '''
 # --- 2. Setup Device ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -220,7 +199,14 @@ with torch.no_grad():
         ).to(DEVICE)
 
         # 5.4 LLaVA 執行「批次推論」
-        outputs = model.generate(**inputs, max_new_tokens=1024)
+        # 修改 generate 部分
+        outputs = model.generate(
+            **inputs, 
+            max_new_tokens=1024,      # 確保長度足夠
+            do_sample=False,          # [新增] 關閉採樣，使用貪婪解碼 (Greedy Search)
+            # 或者使用: do_sample=True, temperature=0.2, top_p=0.9
+            repetition_penalty=1.1    # [新增] 稍微懲罰重複內容，防止它一直複製
+        )
         
         # 5.5 批次解碼
         # 使用 batch_decode 來一次解碼所有 N 個輸出
@@ -229,23 +215,46 @@ with torch.no_grad():
         # 5.6 剖析並儲存這個批次的結果
         for filename, full_response in zip(valid_filenames_batch, decoded_responses):
             try:
-                # 依據 `[/INST]` 標記來分割，找出 LLaVA 的回答
-                response_json_str = full_response.split("[/INST]")[-1].strip()
+                # 1. 提取 LLaVA 回答部分
+                raw_output = full_response.split("[/INST]")[-1].strip()
                 
-                if response_json_str.startswith("```json"):
-                    response_json_str = response_json_str[7:-3].strip()
-                elif response_json_str.startswith("{"):
-                    pass
+                # 2. 使用 Regex 尋找 JSON 物件 (比 hardcode 切片更穩健)
+                # 尋找第一個 { 和最後一個 } 之間的內容
+                match = re.search(r'(\{.*\})', raw_output, re.DOTALL)
+                if match:
+                    json_str = match.group(1)
                 else:
-                    raise Exception(f"Not a JSON: {response_json_str[:20]}")
+                    # 如果找不到大括號，嘗試直接解析整個字串
+                    json_str = raw_output
 
-                # 儲存這個乾淨的 "JSON 字串"
-                summaries_dict[filename] = response_json_str
+                # 3. 嘗試解析 JSON
+                data = json.loads(json_str)
+
+                # --- [防呆機制] 檢查是否發生「清單複製」 ---
+                # 如果某個欄位的物件超過 8 個，極有可能是模型在抄襲 Prompt
+                inventory = data.get("visual_inventory", {})
+                is_hallucinating = False
+                
+                for cat in ["structures", "road_components", "street_furniture", "nature"]:
+                    items = inventory.get(cat, [])
+                    if isinstance(items, list) and len(items) > 8:
+                        tqdm.write(f"WARNING: Detected hallucination in {filename} ({cat} has {len(items)} items). Pruning.")
+                        inventory[cat] = [] # 清空該欄位，避免污染資料庫
+                        is_hallucinating = True
+                
+                if is_hallucinating:
+                    data["visual_inventory"] = inventory
+                    # 重新轉回字串
+                    json_str = json.dumps(data, ensure_ascii=False)
+
+                # 儲存
+                summaries_dict[filename] = json_str
 
             except Exception as e:
-                tqdm.write(f"WARNING: Failed to parse VLM output for {filename}, Error: {e}")
-                tqdm.write(f"         Full Output: {full_response}")
-                summaries_dict[filename] = f'{{"error": "VLM output parse error: {e}"}}'
+                tqdm.write(f"WARNING: Failed to parse output for {filename}: {e}")
+                # 選擇性：印出錯誤的輸出以便除錯
+                # tqdm.write(f"Raw: {raw_output[:100]}...") 
+                summaries_dict[filename] = f'{{"error": "parse_error"}}'
 
 # --- 6. Save All Summaries ---
 print("\n---")

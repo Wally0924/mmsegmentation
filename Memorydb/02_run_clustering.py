@@ -12,11 +12,10 @@ INPUT_FEATURES_FILE = "all_joint_features.npy"   # 輸入：融合特徵 (Teache
 OUTPUT_LABELS_FILE = "cluster_labels.npy"        # 輸出：最終分群標籤 (合併後)
 
 # 1. 初始 K 值 (建議設大一點，讓 K-Means 先切細)
-INITIAL_K = 7
-
+INITIAL_K = 15
 # 2. 合併門檻 (相似度高於此值則合併)
-# 建議：0.92 ~ 0.96。數值越高代表「非常非常像」才合併。
-MERGE_THRESHOLD = 0.90
+# 建議：0.92 ~ 0.96。數值越代表「非常非常像」才合併。
+MERGE_THRESHOLD = 0.92
 
 print(f"--- 階段 2：VLM 指導分群 (Initial K={INITIAL_K}, Merge Threshold={MERGE_THRESHOLD}) ---")
 

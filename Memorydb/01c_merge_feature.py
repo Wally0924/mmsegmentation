@@ -12,9 +12,9 @@ OUTPUT_FEATURES_FILE = "all_joint_features.npy" # 輸出加權融合特徵檔案
 
 # 權重設定
 # 圖像特徵的權重
-IMAGE_WEIGHT = 0.6
+IMAGE_WEIGHT = 0.65
 # 文字特徵的權重
-TEXT_WEIGHT = 0.4
+TEXT_WEIGHT = 0.35
 
 
 def load_features(file_path: str) -> np.ndarray:
